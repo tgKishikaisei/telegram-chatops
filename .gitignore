@@ -1,0 +1,31 @@
+# Секреты и локальные данные — в git не попадают никогда
+.env
+.env.*
+!.env.example
+secrets/*
+!secrets/README.md
+data/
+*.db
+*.db-journal
+*.sqlite3
+*.pem
+*.key
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# IDE и служебные файлы
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+.claude/
+CLAUDE.md

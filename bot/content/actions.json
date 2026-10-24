@@ -1,0 +1,29 @@
+{
+  "agent_url": "http://ops-agent.internal:8080/run",
+  "actions": [
+    {
+      "name": "restart_api",
+      "title": "Перезапустить API",
+      "dangerous": true,
+      "params": {}
+    },
+    {
+      "name": "scale_workers",
+      "title": "Изменить число воркеров",
+      "dangerous": true,
+      "params": {"count": "^(?:[1-9]|1[0-9]|20)$"}
+    },
+    {
+      "name": "clear_cache",
+      "title": "Очистить кэш страниц",
+      "dangerous": false,
+      "params": {}
+    },
+    {
+      "name": "deploy_status",
+      "title": "Статус последнего деплоя",
+      "dangerous": false,
+      "params": {"service": "^(?:api|web|worker)$"}
+    }
+  ]
+}

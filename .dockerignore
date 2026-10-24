@@ -1,0 +1,17 @@
+# В образ попадает только код: ни секретов, ни данных, ни тестов
+.env
+.env.*
+!.env.example
+secrets/
+data/
+tests/
+deploy/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+docker-compose*.yml
+.git/
+.github/
+docs/
+tools/
+.venv/

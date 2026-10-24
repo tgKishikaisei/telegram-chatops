@@ -1,0 +1,110 @@
+# Тесты, миграции, статический анализ, аудит зависимостей и сборка образа на каждый push.
+# Сторонние actions закреплены по полному SHA коммита (а не по тегу) — тег можно перевесить на вредоносный код.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: тесты, миграции, анализ
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.lock
+            requirements-dev.txt
+
+      - name: Зависимости (точные версии с проверкой хешей)
+        run: |
+          pip install --require-hashes --no-deps -r requirements.lock
+          pip install -r requirements-dev.txt
+
+      - name: Ruff
+        run: python -m ruff check bot tests tools
+
+      - name: Тесты
+        run: python -m pytest -q
+
+      - name: Импорт процессов
+        run: |
+          python -c "import bot.app"
+          python -c "import bot.web.app"
+
+      - name: Bandit
+        run: python -m bandit -q -r bot -ll
+
+      - name: Вызовы репозиториев с сессией
+        run: python tools/lint_calls.py
+
+      - name: Миграции применяются и совпадают с моделями
+        env:
+          DATABASE_URL: sqlite+aiosqlite:///${{ runner.temp }}/check.db
+        run: |
+          python -m alembic upgrade head
+          python -m alembic check
+
+      - name: pip-audit
+        run: python -m pip_audit -r requirements.lock --require-hashes --disable-pip --progress-spinner off
+
+  docker:
+    name: сборка образа
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: docker build
+        env:
+          IMAGE_TAG: ci/chatops:${{ github.sha }}
+        run: docker build --pull -t "$IMAGE_TAG" .
+
+  trivy:
+    name: trivy (уязвимости, ошибки конфигурации, секреты)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,misconfig,secret
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+  zizmor:
+    name: zizmor (безопасность самих workflow)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
+        with:
+          advanced-security: false

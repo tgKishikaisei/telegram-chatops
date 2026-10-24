@@ -1,0 +1,27 @@
+# Caddy: HTTPS-сертификат Let's Encrypt выдаётся и продлевается автоматически.
+# DOMAIN и ACME_EMAIL задаются в .env рядом с docker-compose.yml.
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+		-Via
+	}
+
+	request_body {
+		max_size 1MB
+	}
+
+	reverse_proxy web:8000
+
+	# Caddy сам скрывает в логе Authorization и Cookie
+	log {
+		output stdout
+		format json
+	}
+}

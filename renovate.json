@@ -1,0 +1,40 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests", "docker:pinDigests"],
+  "timezone": "Asia/Tashkent",
+  "schedule": ["before 6am on monday"],
+  "labels": ["dependencies"],
+  "minimumReleaseAge": "3 days",
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["security"],
+    "minimumReleaseAge": null,
+    "schedule": ["at any time"]
+  },
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 6am on the first day of the month"]
+  },
+  "packageRules": [
+    {
+      "description": "Python-зависимости — одним PR, чтобы CI проверял их вместе",
+      "matchManagers": ["pip_requirements", "pip-compile"],
+      "groupName": "python deps"
+    },
+    {
+      "description": "Образы баз данных и прокси — мажорные версии только вручную",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["postgres", "redis", "caddy"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
+      "description": "GitHub Actions закреплены по SHA, обновления раз в неделю одним PR",
+      "matchManagers": ["github-actions"],
+      "groupName": "github actions"
+    }
+  ],
+  "pip-compile": {
+    "managerFilePatterns": ["/(^|/)requirements\\.lock$/"]
+  }
+}

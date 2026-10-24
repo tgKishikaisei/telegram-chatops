@@ -1,0 +1,12 @@
+# Прямые зависимости. Точные версии с хешами — в requirements.lock (из него собирается Docker-образ).
+aiogram>=3.31,<4
+SQLAlchemy[asyncio]>=2.1.3,<2.2
+asyncpg>=0.30,<1
+aiosqlite>=0.21,<1
+alembic>=1.16,<2
+redis>=6.2,<9
+pydantic-settings>=2.10,<3
+tzdata>=2025.2
+fastapi>=0.115,<1         # приём вебхуков
+uvicorn>=0.30,<1
+httpx>=0.27,<1            # подписанные запросы к агенту runbook-действий; TestClient в тестах

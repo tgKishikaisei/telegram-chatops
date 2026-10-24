@@ -1,0 +1,147 @@
+# Продакшен-запуск: docker compose up -d --build
+# Перед первым запуском создайте файлы секретов в папке secrets/ (см. secrets/README.md)
+# и заполните .env несекретными настройками (см. .env.example).
+name: chatops
+
+x-hardening: &hardening
+  restart: unless-stopped
+  read_only: true                       # файловая система контейнера только для чтения
+  cap_drop: [ALL]                       # никаких привилегий Linux
+  security_opt: ["no-new-privileges:true"]
+  pids_limit: 256
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "5"}
+
+x-app: &app
+  <<: *hardening
+  image: chatops-bot:latest
+  env_file: .env
+  environment:
+    ENVIRONMENT: production
+    JSON_LOGS: "true"
+    DATABASE_URL: postgresql+asyncpg://bot_app:__DB_PASSWORD__@db:5432/chatops
+    REDIS_URL: redis://bot:__REDIS_PASSWORD__@redis:6379/0
+  secrets:
+      - bot_token
+      - redis_password
+      - alert_webhook_secret
+      - github_webhook_secret
+      - agent_secret
+      - source: db_app_password
+        target: db_password
+  tmpfs: [/tmp]
+  depends_on:
+    migrate: {condition: service_completed_successfully}
+    redis: {condition: service_healthy}
+  deploy:
+    resources:
+      limits: {memory: 512m, cpus: "1.0"}
+
+services:
+  db:
+    image: postgres:17-alpine
+    <<: *hardening
+    user: postgres
+    environment:
+      POSTGRES_DB: chatops
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_superuser_password
+    secrets: [db_superuser_password, db_owner_password, db_app_password]
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./deploy/postgres/init-roles.sh:/docker-entrypoint-initdb.d/10-init-roles.sh:ro
+    tmpfs: [/var/run/postgresql, /tmp]
+    shm_size: 128m
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "chatops"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [data]
+
+  redis:
+    image: redis:8-alpine
+    <<: *hardening
+    user: redis
+    command: ["sh", "/deploy/start.sh"]
+    environment:
+      REDIS_KEY_PREFIX: chatops
+    secrets: [redis_password]
+    volumes:
+      - redis-data:/data
+      - ./deploy/redis:/deploy:ro
+    tmpfs: ["/run/redis:uid=999,gid=1000,mode=0700", /tmp]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping 2>&1 | grep -qE 'PONG|NOAUTH'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [data]
+
+  migrate:
+    <<: *hardening
+    build: .
+    image: chatops-bot:latest
+    restart: "no"
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://bot_owner:__DB_PASSWORD__@db:5432/chatops
+    secrets:
+      - source: db_owner_password
+        target: db_password
+    depends_on:
+      db: {condition: service_healthy}
+    networks: [data]
+
+  bot:
+    <<: *app
+    networks: [data, egress]
+
+  web:
+    <<: *app
+    command: ["python", "-m", "bot.web"]
+    networks: [web, data, egress]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  caddy:
+    image: caddy:2-alpine
+    <<: *hardening
+    cap_add: [NET_BIND_SERVICE]   # только право слушать порты 80/443
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      DOMAIN: ${DOMAIN:?укажите DOMAIN в .env}
+      ACME_EMAIL: ${ACME_EMAIL:?укажите ACME_EMAIL в .env}
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    tmpfs: [/tmp]
+    depends_on:
+      web: {condition: service_healthy}
+    networks: [web, egress]
+
+networks:
+  data: {internal: true}    # БД и Redis: нет выхода в интернет и не видны снаружи
+  web: {internal: true}     # Caddy ↔ веб-приложение
+  egress: {}                # выход наружу: api.telegram.org и внешние API
+
+volumes:
+  db-data:
+  redis-data:
+  caddy-data:
+  caddy-config:
+
+secrets:
+  bot_token: {file: ./secrets/bot_token}
+  db_superuser_password: {file: ./secrets/db_superuser_password}
+  db_owner_password: {file: ./secrets/db_owner_password}
+  db_app_password: {file: ./secrets/db_app_password}
+  redis_password: {file: ./secrets/redis_password}
+  alert_webhook_secret: {file: ./secrets/alert_webhook_secret}
+  github_webhook_secret: {file: ./secrets/github_webhook_secret}
+  agent_secret: {file: ./secrets/agent_secret}
